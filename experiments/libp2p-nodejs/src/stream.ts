@@ -6,8 +6,9 @@ import { abortableSource, abortableDuplex } from "abortable-iterator";
 import * as lengthPrefixed from "it-length-prefixed";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
+import { Stream } from "@libp2p/interface-connection";
 
-export async function iostream(stream) {
+export async function iostream(stream: Stream) {
   const controller = new AbortController();
   const stdin = abortableSource(process.stdin, controller.signal);
   const duplex = abortableDuplex(stream, controller.signal);
@@ -20,7 +21,7 @@ export async function iostream(stream) {
       pipe => lengthPrefixed.decode(pipe),
       pipe => map(pipe, buf => uint8ArrayToString(buf.slice())),
       pipe => map(pipe, line => {
-        console.log(">>", msg.toString().replace("\n", ""));
+        console.log(">>", line.toString().replace("\n", ""));
       }),
     );
   } catch (err) {
@@ -31,7 +32,7 @@ export async function iostream(stream) {
   }
 }
 
-export function stdinToStream(stream) {
+export function stdinToStream(stream: Stream) {
   // Read utf-8 from stdin
   process.stdin.setEncoding('utf8')
   return pipe(
@@ -51,7 +52,7 @@ export function stdinToStream(stream) {
   )
 }
 
-export function streamToConsole(stream) {
+export function streamToConsole(stream: Stream) {
   return pipe(
     // Read from the stream (the source)
     stream.source,

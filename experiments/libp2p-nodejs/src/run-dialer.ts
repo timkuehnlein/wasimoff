@@ -16,12 +16,13 @@ import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
 import figlet from "figlet";
 import { stdinToStream, streamToConsole } from "./stream.js";
 import * as cm from "./common.js";
+import { Stream } from "@libp2p/interface-connection";
 
 // --- prelude -------------------------------------------------------------- //
 
 //! load a persistent peer-id
 //? (await require('peer-id').create({ keyType: "Ed25519" })).toJSON()
-const peerId = await createFromJSON({
+const ownPeerId = await createFromJSON({
   id: '12D3KooWQAkbxDYXsRBL75hzjYXDWq2ntT7U8zA2DLsVPRnEtRTg',
   privKey: 'CAESQF+mPW4UsUKHjDjAGAqC4WLVFKOlQAEQx5cQxurgM2Nf1TyZnc4eFI3TJLmQSar77bQaWrICjvIm1N14StIzd1M=',
   pubKey: 'CAESINU8mZ3OHhSN0yS5kEmq++20GlqyAo7yJtTdeErSM3dT'
@@ -37,12 +38,14 @@ const relay = multiaddr(process.argv[2]);
 // peer id expected in argument
 if (!process.argv[3]) throw new Error("peer id expected in second argument");
 const peer = multiaddr(process.argv[3]);
+const peerId = peer.getPeerId();
+if (!peerId) throw new Error("peer id in second argument invalid");
 
 // --- constructor ---------------------------------------------------------- //
 
 // create the client node
 const node = await createLibp2p({
-  peerId,
+  peerId: ownPeerId,
 
   // use simple tcp for now but append relay transport
   transports: [
@@ -58,7 +61,7 @@ const node = await createLibp2p({
   // discover peers through the relay to avoid manually dialing
   peerDiscovery: [
     bootstrap({
-      list: [ relay ],
+      list: [ relay.toString() ],
     }),
     pubsubPeerDiscovery({
       interval: 1000,
@@ -71,7 +74,6 @@ const node = await createLibp2p({
     identify: identifyService(),
     pubsub: pubsub(),
   },
-
 });
 
 // --- implementation ------------------------------------------------------- //
@@ -87,7 +89,7 @@ cm.printPeerStoreUpdates(node, "peer:identify");
 // which dial to use
 const waitForDiscovery = true;
 
-function chatStream(stream) {
+function chatStream(stream: Stream) {
   console.log("--- stream opened ---");
   stdinToStream(stream);
   streamToConsole(stream);
@@ -97,7 +99,7 @@ function chatStream(stream) {
   if (waitForDiscovery) {
 
     // wait until peerid is routable
-    const pid = peerIdFromString(peer.getPeerId());
+    const pid = peerIdFromString(peerId);
     console.log("wait for peerId:", peer);
     while (!await node.peerStore.has(pid) || !(await node.peerStore.get(pid)).addresses.length) {
       await new Promise(r => setTimeout(r, 100));

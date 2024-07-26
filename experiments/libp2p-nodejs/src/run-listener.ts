@@ -57,7 +57,7 @@ const node = await createLibp2p({
   // discover peers through the relay to avoid manually dialing
   peerDiscovery: [
     bootstrap({
-      list: [ relay ],
+      list: [ relay.toString() ],
     }),
     pubsubPeerDiscovery({
       interval: 1000,
