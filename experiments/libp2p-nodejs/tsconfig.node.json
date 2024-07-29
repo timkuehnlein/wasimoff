@@ -1,0 +1,10 @@
+// https://github.com/tsconfig/bases
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "node16",
+    "moduleResolution": "node16",
+
+    "outDir": "dist/node"
+  }
+}

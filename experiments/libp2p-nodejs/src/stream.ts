@@ -6,7 +6,7 @@ import { abortableSource, abortableDuplex } from "abortable-iterator";
 import * as lengthPrefixed from "it-length-prefixed";
 import { fromString as uint8ArrayFromString } from "uint8arrays/from-string";
 import { toString as uint8ArrayToString } from "uint8arrays/to-string";
-import { Stream } from "@libp2p/interface-connection";
+import type { Stream } from "@libp2p/interface";
 
 export async function iostream(stream: Stream) {
   const controller = new AbortController();
@@ -15,26 +15,34 @@ export async function iostream(stream: Stream) {
   try {
     await pipe(
       stdin,
-      pipe => map(pipe, line => uint8ArrayFromString(line)),
-      pipe => lengthPrefixed.encode(pipe),
+      (pipe) => map(pipe, (line) => uint8ArrayFromString(line)),
+      (pipe) => lengthPrefixed.encode(pipe),
       duplex,
-      pipe => lengthPrefixed.decode(pipe),
-      pipe => map(pipe, buf => uint8ArrayToString(buf.slice())),
-      pipe => map(pipe, line => {
-        console.log(">>", line.toString().replace("\n", ""));
-      }),
+      (pipe) => lengthPrefixed.decode(pipe),
+      (pipe) => map(pipe, (buf) => uint8ArrayToString(buf.slice())),
+      (pipe) =>
+        map(pipe, (line) => {
+          console.log(">>", line.toString().replace("\n", ""));
+        })
     );
   } catch (err) {
-    console.log("whoops, stream failed:", err)
+    console.log("whoops, stream failed:", err);
   } finally {
     controller.abort();
-    
   }
+}
+
+export function helloWorldToStream(stream: Stream) {
+  return pipe(
+    [uint8ArrayFromString("Hello World")],
+    (source) => lengthPrefixed.encode(source),
+    stream.sink
+  );
 }
 
 export function stdinToStream(stream: Stream) {
   // Read utf-8 from stdin
-  process.stdin.setEncoding('utf8')
+  process.stdin.setEncoding("utf8");
   return pipe(
     // Read from stdin (the source)
     process.stdin,
@@ -42,14 +50,14 @@ export function stdinToStream(stream: Stream) {
     async function* (input) {
       for await (const string of input) {
         yield uint8ArrayFromString(string);
-      };
+      }
     },
     // (source) => map(source, (string) => uint8ArrayFromString(string)),
     // Encode with length prefix (so receiving side knows how much data is coming)
     (source) => lengthPrefixed.encode(source),
     // Write to the stream (the sink)
     stream.sink
-  )
+  );
 }
 
 export function streamToConsole(stream: Stream) {
@@ -62,7 +70,7 @@ export function streamToConsole(stream: Stream) {
     async function* (input) {
       for await (const chunk of input) {
         yield uint8ArrayToString(chunk.slice());
-      };
+      }
     },
     // (source) => map(source, (buf) => uint8ArrayToString(buf.subarray())),
     // Sink function
@@ -70,8 +78,8 @@ export function streamToConsole(stream: Stream) {
       // For each chunk of data
       for await (const msg of source) {
         // Output the data as a utf8 string
-        console.log(">>", msg.toString().replace("\n", ""))
+        console.log(">>", msg.toString().replace("\n", ""));
       }
     }
-  )
+  );
 }

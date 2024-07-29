@@ -9,38 +9,47 @@
     "npm": ">= 6.0.0"
   },
   "scripts": {
-    "build": "tsc",
-    "relay": "node dist/run-relay.js",
-    "listener": "node dist/run-listener.js",
-    "dialer": "node dist/run-dialer.js",
-    "dev-relay": "tsc-watch --onSuccess \"npm run relay\""
+    "build-node": "tsc --project tsconfig.node.json",
+    "relay": "node dist/node/run-relay.js",
+    "listener": "node dist/node/run-listener.js",
+    "dialer": "node dist/node/run-dialer.js",
+    "dev-relay": "tsc-watch --project tsconfig.node.json --onSuccess \"npm run relay\"",
+    
+    "dev-browser": "vite",
+    "build-browser": "tsc --project tsconfig.browser.json && vite build --outDir dist/browser",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@chainsafe/libp2p-gossipsub": "^7.0.0",
-    "@chainsafe/libp2p-noise": "^12.0.0",
-    "@libp2p/bootstrap": "^8.0.0",
-    "@libp2p/floodsub": "^7.0.1",
-    "@libp2p/mplex": "^8.0.1",
-    "@libp2p/peer-id": "^2.0.3",
-    "@libp2p/peer-id-factory": "^2.0.3",
-    "@libp2p/pubsub-peer-discovery": "^8.0.4",
-    "@libp2p/tcp": "^7.0.1",
-    "@libp2p/webrtc": "^1.2.0",
-    "@libp2p/websockets": "^6.0.1",
-    "@libp2p/webtransport": "^2.0.1",
+    "@chainsafe/libp2p-gossipsub": "^13.1.0",
+    "@chainsafe/libp2p-noise": "^15.1.0",
+    "@chainsafe/libp2p-yamux": "^6.0.2",
+    "@libp2p/bootstrap": "^10.1.2",
+    "@libp2p/circuit-relay-v2": "^1.1.2",
+    "@libp2p/floodsub": "^9.1.2",
+    "@libp2p/identify": "^2.1.2",
+    "@libp2p/mplex": "^10.1.2",
+    "@libp2p/peer-id": "^4.2.1",
+    "@libp2p/peer-id-factory": "^4.2.1",
+    "@libp2p/pubsub-peer-discovery": "^10.0.2",
+    "@libp2p/tcp": "^9.1.2",
+    "@libp2p/webrtc": "^4.1.2",
+    "@libp2p/websockets": "^8.1.2",
+    "@libp2p/webtransport": "^4.1.2",
     "abortable-iterator": "^5.0.1",
-    "figlet": "^1.6.0",
-    "it-length-prefixed": "^9.0.1",
-    "it-map": "^3.0.3",
+    "browser-or-node": "^3.0.0",
+    "figlet": "^1.7.0",
+    "it-length-prefixed": "^9.0.4",
+    "it-map": "^3.1.1",
     "it-pipe": "^3.0.1",
-    "libp2p": "^0.45.0",
+    "libp2p": "^1.8.1",
     "multiaddr": "^10.0.1",
     "peer-id": "^0.16.0",
-    "streaming-iterables": "^7.1.0"
+    "streaming-iterables": "^8.0.1"
   },
   "devDependencies": {
     "@types/figlet": "^1.5.8",
     "tsc-watch": "^6.2.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vite": "^5.3.4"
   }
 }
