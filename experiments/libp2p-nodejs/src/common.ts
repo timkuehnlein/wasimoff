@@ -26,11 +26,33 @@ export function printListeningAddrs(node: Libp2p) {
 
 // print peerid whenever a dial succeeds or a peer disconnects
 export function printPeerConnections(node: Libp2p) {
+  const printConnections = (node: Libp2p) =>
+    node.getConnections().reduce(
+      (acc, conn) =>
+        Object.assign(acc, {
+          [conn.remotePeer.toString()]: {
+            status: conn.status,
+            multiplexer: conn.multiplexer,
+            direction: conn.direction,
+            streams: conn.streams.length,
+          },
+        }),
+      {}
+    );
+
   node.addEventListener("peer:connect", (ev) => {
-    console.log("\x1b[1;34m[CONNECT]\x1b[0m", ev.detail.toString());
+    console.log(
+      "\x1b[1;34m[CONNECT]\x1b[0m",
+      ev.detail.toString(),
+      printConnections(node)
+    );
   });
   node.addEventListener("peer:disconnect", (ev) => {
-    console.log("\x1b[1;34m[DISCONNECT]\x1b[0m", ev.detail.toString());
+    console.log(
+      "\x1b[1;34m[DISCONNECT]\x1b[0m",
+      ev.detail.toString(),
+      printConnections(node)
+    );
   });
 }
 

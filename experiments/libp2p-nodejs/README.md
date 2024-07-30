@@ -7,6 +7,7 @@ This is a demonstration using [`js-libp2p`](https://github.com/libp2p/js-libp2p)
 * The Listener takes a reservation and starts listening on the relayed transport.
 * The Dialer connects to the Relay and participates in the PubSub PeerDiscovery to get the Listener's address.
 * In this simple example, you can also directly construct the Listener's address – assuming that it already has a reservation – but this way the demonstration also utilizes a builtin discovery mechanism.
+* Hint: WebRTC connections can be monitored in chromium based browsers under <chrome://webrtc-internals/>
 
 ### How to run the demonstration:
 
@@ -20,6 +21,8 @@ This is a demonstration using [`js-libp2p`](https://github.com/libp2p/js-libp2p)
    ]
    
    ```
+
+#### With Listener and Dialer
 
 **for node:**
 
@@ -58,3 +61,31 @@ This is a demonstration using [`js-libp2p`](https://github.com/libp2p/js-libp2p)
    Open a browser with two tabs or two browsers (when running on WSL, a browser in WSL!) on the specified port and open the console. Click either button for Listener or Dialer and a stream will be opened. Hello World messages wil be exchanged between both instances.
 
 Note that listener and dialer can be both node instances, both browser instances or either or.
+
+#### With ambiguous Peer
+
+(you need the same relay running)
+
+**for node:**
+
+Start two instances of the **Peer** by specifying the relay address from above as an argument:
+   ```
+   $ npm run peer /dns4/localhost/tcp/30000/ws/p2p/12D3KooWD91XkY...
+   ...
+   ```
+
+**for the browser:**
+
+Serve a website which can act as a **Peer** with the relay address hardcoded for the moment:
+   ```
+   $ npm run dev-browser
+   ...
+   ```
+
+   Open a browser with two tabs or two browsers (when running on WSL, a browser in WSL!) on the specified port and open the console. Click the button for Peer and a stream will be opened. Hello World messages wil be exchanged between both instances.
+
+___
+
+Upon discovery and automatic upgrade to WebRTC, a stream will be opened.
+
+Note that both peers can be node instances, browser instances or either or.
