@@ -1,3 +1,9 @@
+import type { Stream } from "@libp2p/interface";
+import * as lp from "it-length-prefixed";
+import { lpStream } from "it-length-prefixed-stream";
+import { pipe } from "it-pipe";
+import { Uint8ArrayList } from 'uint8arraylist';
+
 /** An *upside-down* Promise, which can be signalled to resolve from outside. */
 export function Promised<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -34,6 +40,92 @@ export async function* agen<T>(stream: ReadableStream<T>): AsyncGenerator<T, voi
     reader.releaseLock();
   };
 };
+
+/** Create an ReadableStream from a `Source`. */
+export function toReadableStream(stream: Stream): ReadableStream<Uint8Array> {
+  const source = pipe(stream.source, (source) => lp.decode(source));
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for await (const chunk of source) {
+        if (chunk instanceof Uint8ArrayList) {
+          for (const buf of chunk) {
+            controller.enqueue(buf);
+          }
+        } else {
+          controller.enqueue(chunk);
+        }
+      }
+      controller.close();
+    },
+    cancel() {
+      // Handle cancellation if needed
+      console.log("Reader cancelled");
+    },
+  });
+}
+// export function toReadableStream(source: Source<Uint8ArrayList | Uint8Array>): ReadableStream<Uint8Array> {
+//   const iterator = getIterator(source);
+//   return new ReadableStream<Uint8Array>({
+//     async pull(controller) {
+//       const { done, value } = await iterator.next();
+//       if (done) controller.close();
+//       const chunk = value;
+
+//       // for await (const chunk of source) {
+//         if (chunk instanceof Uint8ArrayList) {
+//           for (const buf of chunk) {
+//             controller.enqueue(buf);
+//           }
+//         } else {
+//           controller.enqueue(chunk);
+//         }
+//       // }
+//       // controller.close();
+//     },
+//     cancel() {
+//       // Handle cancellation if needed
+//       console.log("Stream cancelled!");
+//     }
+//   });
+// }
+
+/** Create an WritableStream from a `Stream`. */
+export function toWritableStream(stream: Stream): WritableStream<Uint8Array> {
+  const lp = lpStream(stream);
+  return new WritableStream<Uint8Array>({
+    async write(chunk, controller) {
+      console.log("chunk", chunk, typeof chunk);
+      try {
+        await lp.write(chunk);
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+    close() {
+      stream.closeWrite();
+      // Handle stream close if needed
+    },
+    abort() {
+      // Handle stream abort if needed
+    },
+  });
+}
+
+// export function toWritableStream(sink: Sink<Source<Uint8ArrayList | Uint8Array>, Promise<void>>): WritableStream<Uint8Array> {
+//   return new WritableStream<Uint8Array>({
+//     async write(chunk) {
+//       await sink((async function* () { yield chunk; })());
+//     },
+//     close() {
+//       // Handle stream close if needed
+//       console.log("Stream closed!");
+//     },
+//     abort() {
+//       // Handle stream abort if needed
+//       console.log("Stream aborted!");
+//     }
+//   });
+// }
 
 /** Get the next element from an async iterator. */
 export async function next<T>(iterator: AsyncIterator<T, T, T>): Promise<T>;

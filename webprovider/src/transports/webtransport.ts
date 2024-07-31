@@ -1,7 +1,7 @@
 import * as MessagePack from "@msgpack/msgpack";
 import { pairs, next } from "@/fn/utilities";
 import type { NetRPCDecoder, NetRPCEncoder, NetRPCRequestHeader, NetRPCResponseHeader, RPCServer } from "@/transports";
-import { MessagePackChannel, BrokerTransport } from "@/transports";
+import { WebTransportMessageChannel, BrokerTransport } from "@/transports";
 
 //? +--------------------------------------------------------------+
 //? | Implement a Broker transport over a WebTransport connection. |
@@ -22,7 +22,7 @@ export class WebTransportBroker implements BrokerTransport {
     public close: () => Promise<void>,
 
     /** A bidirectional channel for control messages to the Broker. */
-    public messages: MessagePackChannel,
+    public messages: WebTransportMessageChannel,
 
     /** The incoming RPC requests in an `AsyncGenerator`. */
     public rpc: RPCServer,
@@ -58,7 +58,7 @@ export class WebTransportBroker implements BrokerTransport {
     };
 
     // open a bidirectional stream for control messages
-    let messages = new MessagePackChannel(await transport.createBidirectionalStream());
+    let messages = new WebTransportMessageChannel(await transport.createBidirectionalStream());
 
     // await an incoming bidirectional stream for rpc requests
     let rpc = NetRPCStreamServer(await next(transport.incomingBidirectionalStreams));

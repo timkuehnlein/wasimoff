@@ -18,7 +18,7 @@ import { useWorkerPool } from "@/stores/workerpool";
 const pool = useWorkerPool();
 
 // connection to the broker
-import { useConnection } from "@/stores/connection";
+import { useConnection } from "@/stores";
 const conn = useConnection();
 
 
@@ -30,6 +30,8 @@ let transportConfig = ref(conf.configpath);
 async function connect() {
   try {
     await conf.fetchConfig(transportConfig.value);
+  } catch (err) { terminal.warn(String(err)); }
+  try {
     await conn.connect(conf.transport, conf.certhash);
   } catch (err) { terminal.error(String(err)); }
 }
