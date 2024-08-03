@@ -26,7 +26,7 @@ import { webSockets } from "@libp2p/websockets";
 import * as filters from "@libp2p/websockets/filters";
 import * as jsEnv from "browser-or-node";
 import type { Stream } from "@libp2p/interface";
-// import type { PeerId, Peer } from "@libp2p/interface";
+import { Libp2pStreamChannel } from "./message-stream.js";
 
 // const WEBRTC_PROTOCOL = "/webrtc-signaling/0.0.1";
 const WASMOFF_CHAT_PROTOCOL = "/wasmoff/chat/v1";
@@ -113,14 +113,30 @@ cm.printPeerStoreUpdates(node, "peer:update");
 // handle a simple chat protocol
 await node.handle(WASMOFF_CHAT_PROTOCOL, async ({ stream, connection }) => {
   console.log(`--- opened chat stream over ${connection.multiplexer} ---`);
-  // await iostream(stream);
-  if (jsEnv.isNode) {
-    stdinToStream(stream);
-  } else {
-    helloWorldToStream(stream);
-  }
-  streamToConsole(stream);
+
+  messageStream(stream);
 });
+
+async function messageStream(stream: Stream) {
+  const x = new Libp2pStreamChannel(stream);
+  (async () => {
+    for await (const message of x.channel) {
+      console.info("Message: " + JSON.stringify(message));
+    }
+  })();
+
+  if (stream.direction === "outbound") {
+    await new Promise((resolve) => setTimeout(resolve, 10000));
+  }
+
+  await x.send("Hello World");
+  await x.send({
+    type: "hello",
+    message: {
+      sent: new Date().toISOString(),
+    },
+  });
+}
 
 node.addEventListener("peer:connect", (ev) => {
   node

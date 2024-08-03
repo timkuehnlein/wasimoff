@@ -32,6 +32,19 @@ export async function iostream(stream: Stream) {
   }
 }
 
+export async function loopToStream(stream: Stream) {
+  async function* run() {
+    for (let i = 0; i < 20; i++) {
+      console.log("sending", i);
+      yield uint8ArrayFromString(`Iteration ${i}`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  // without encoding or length prefix the stream closes prematurely
+  await pipe(run(), lengthPrefixed.encode, stream.sink);
+}
+
 export function helloWorldToStream(stream: Stream) {
   return pipe(
     [uint8ArrayFromString("Hello World")],

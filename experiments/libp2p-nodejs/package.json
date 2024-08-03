@@ -36,6 +36,7 @@
     "@libp2p/webrtc": "^4.1.2",
     "@libp2p/websockets": "^8.1.2",
     "@libp2p/webtransport": "^4.1.2",
+    "@msgpack/msgpack": "^3.0.0-beta2",
     "@multiformats/multiaddr-matcher": "^1.2.4",
     "abortable-iterator": "^5.0.1",
     "browser-or-node": "^3.0.0",
