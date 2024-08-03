@@ -26,12 +26,10 @@ import { webSockets } from "@libp2p/websockets";
 import * as filters from "@libp2p/websockets/filters";
 import * as jsEnv from "browser-or-node";
 import type { Stream } from "@libp2p/interface";
-// import type { PeerId, Peer } from "@libp2p/interface";
+import { pullStream } from "./pull.js";
 
 // const WEBRTC_PROTOCOL = "/webrtc-signaling/0.0.1";
 const WASMOFF_CHAT_PROTOCOL = "/wasmoff/chat/v1";
-
-// var knownWebRTCPeerIds = new Set<PeerId>();
 
 // --- prelude -------------------------------------------------------------- //
 
@@ -65,10 +63,17 @@ const node = await createLibp2p({
     circuitRelayTransport({
       discoverRelays: 1,
     }),
+    // configuration with small windows does not result in backpressure
+    // { dataChannel: { maxMessageSize: 16, maxBufferedAmount: 16 } }
     webRTC(),
   ],
   connectionEncryption: [noise()],
-  streamMuxers: [yamux()],
+  streamMuxers: [
+    // allows backpressure, whereas mplex does not
+    // default: { initialStreamWindowSize: 1024 * 256, maxStreamWindowSize: 16 * 1024 * 1024 }
+    // does not run with lower values than { initialStreamWindowSize: 1024 * 256, maxStreamWindowSize: 1024 * 256 * 1 }
+    yamux(),
+  ],
 
   // try to use a reservation on the relay
   addresses: {
@@ -113,13 +118,7 @@ cm.printPeerStoreUpdates(node, "peer:update");
 // handle a simple chat protocol
 await node.handle(WASMOFF_CHAT_PROTOCOL, async ({ stream, connection }) => {
   console.log(`--- opened chat stream over ${connection.multiplexer} ---`);
-  // await iostream(stream);
-  if (jsEnv.isNode) {
-    stdinToStream(stream);
-  } else {
-    helloWorldToStream(stream);
-  }
-  streamToConsole(stream);
+  pullStream(stream);
 });
 
 node.addEventListener("peer:connect", (ev) => {
@@ -128,60 +127,9 @@ node.addEventListener("peer:connect", (ev) => {
     .filter((c) => c.multiplexer?.includes("webrtc") && !c.streams.length)
     .forEach(async (c) => {
       const stream = await c.newStream(WASMOFF_CHAT_PROTOCOL);
-      chatStream(stream);
+      pullStream(stream);
     });
 });
-
-// node.addEventListener("peer:update", async () => {
-//   const newWebRTCPeers = await node.peerStore.all({
-//     filters: [(peer) => peer.protocols.includes(WEBRTC_PROTOCOL)],
-//   });
-//   for (const peerId of knownWebRTCPeerIds) {
-//     if (!newWebRTCPeers.some((p) => p.id === peerId)) {
-//       knownWebRTCPeerIds.delete(peerId);
-//     }
-//   }
-
-//   const newPeers = newWebRTCPeers.filter(
-//     (peer) => !knownWebRTCPeerIds.has(peer.id)
-//   );
-//   newPeers.forEach((peer) => {
-//     knownWebRTCPeerIds.add(peer.id);
-//   });
-
-//   connect(newPeers);
-// });
-
-// async function connect(peers: Peer[]) {
-//   for (const peer of peers) {
-//     const existingConnections = node
-//       .getConnections(peer.id)
-//       .filter((c) => c.multiplexer?.includes("webrtc"));
-//     if (existingConnections.length > 0) {
-//       console.log("already connected to", JSON.stringify(existingConnections));
-//       continue;
-//     }
-//     const webRTCMultiaddr = peer.addresses.find(
-//       (addr) =>
-//         WebRTC.matches(addr.multiaddr) &&
-//         // addr.multiaddr.protoNames().includes("webrtc") &&
-//         addr.multiaddr.getPeerId() === peer.id.toString()
-//     )?.multiaddr;
-//     if (!webRTCMultiaddr) {
-//       console.error("no webrtc multiaddr found for peer", peer.id.toString());
-//       continue;
-//     }
-//     try {
-//       const stream = await node.dialProtocol(
-//         webRTCMultiaddr,
-//         WASMOFF_CHAT_PROTOCOL
-//       );
-//       chatStream(stream);
-//     } catch (err) {
-//       console.error("could not dial", webRTCMultiaddr, err);
-//     }
-//   }
-// }
 
 function chatStream(stream: Stream) {
   console.log("--- stream opened ---");
@@ -192,11 +140,6 @@ function chatStream(stream: Stream) {
   }
   streamToConsole(stream);
 }
-
-// node.peerStore.addEventListener does not exist...
-// node.peerStore.addEventListener("change:protocols" as any, ({ peerId, protocols }) => {
-//   console.log("peer", peerId.toB58String(), "supports", protocols);
-// });
 
 // debug the pubsub messages
 // import { toString } from "uint8arrays/to-string";
