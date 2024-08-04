@@ -4,9 +4,11 @@ import { useWorkerPool } from "@/stores/workerpool";
 import { WebTransportBroker, BrokerTransport } from "@/transports";
 import { useTerminal } from "./terminal";
 import { useFilesystem } from "./filesystem";
-import type { AdvancedExecutionOptions, CompletedExecution } from "@/worker/wasmrunner";
-import { Trace } from "@/fn/trace";
-import { proxy } from "comlink";
+import type { CompletedExecution } from "@/worker/wasmrunner";
+import type { ConnectionStore, PoolInfo, ProviderInfo, UploadedFile } from ".";
+import type { WASMRun } from "@/fn/types";
+import { Calls } from "@/fn/calls";
+import { digest } from "@/fn/utilities";
 
 // TODO, check out these additions / alternatives:
 // - CompressionStream could reduce the size on the wire
@@ -14,7 +16,7 @@ import { proxy } from "comlink";
 
 
 /** The connection store abstracts away the details of the underlying transport. */
-export const useConnection = defineStore("Connection", () => {
+export const useBrokerConnection = defineStore<string, ConnectionStore>("Connection", () => {
   const prefix = [ "%c Connection ", "background: goldenrod; color: black;" ];
 
   // use other stores for terminal output and filesystem access
@@ -138,6 +140,10 @@ export const useConnection = defineStore("Connection", () => {
     });
   };
 
+  async function run(body: WASMRun): Promise<CompletedExecution> {
+    return await Calls.run(body, () => {}, pool);
+  }
+
 
   /** This hashtable contains all the known RPC function that may be called by the client broker.
    * * the key is the `method` name
@@ -148,26 +154,7 @@ export const useConnection = defineStore("Connection", () => {
 
     /** Execute a stored WASI executable via the /run endpoint in Broker. */
     async run(body, next): Promise<CompletedExecution> {
-      // expected body type
-      let { id, binary, args, envs, stdin, loadfs, datafile, trace } = body as WASMRun;
-      // maybe start a trace
-      let tracer: Trace | undefined;
-      if (trace === true) tracer = new Trace("rpc: function top");
-      // undefined slices get encoded as `null` in Go
-      if (args === null) args = [];
-      if (envs === null) envs = [];
-      if (loadfs === null) loadfs = [];
-      // assembly advanced options
-      let options: AdvancedExecutionOptions = {};
-      // preload files under exactly their names in OPFS storage, as a simplification
-      if (loadfs) options.rootfs = loadfs.reduce((o,v) => { o[v] = v; return o; }, { } as { [k: string]: string });
-      if (datafile) options.datafile = datafile;
-      if (stdin) options.stdin = stdin;
-      tracer?.now("rpc: parsed options");
-      return await pool.exec(async worker => {
-        tracer?.now("rpc: pool.exec got a worker");
-        return await worker.run(id, binary, [binary, ...args], envs, options, trace ? proxy(tracer!) : undefined);
-      }, next);
+      return Calls.run(body, next, pool);
     },
 
     /** Broker probes if we have a certain file. */
@@ -219,48 +206,5 @@ export const useConnection = defineStore("Connection", () => {
 
   }; /* methods */
 
-  return { transport, connected, connect };
+  return { transport, connected, connect, run };
 });
-
-// expected body type for a WASM run configuration
-// see provider.go WASMRun struct
-type WASMRun = {
-  id: string,
-  binary: string,
-  args: string[],
-  envs: string[],
-  stdin?: string,
-  loadfs?: string[],
-  datafile?: string,
-  trace: boolean,
-}
-
-// expected body type for file uploads
-type UploadedFile = {
-  filename:   string,
-  bytes:      Uint8Array,
-  hash:       Uint8Array,
-  length:     number,
-  epoch:      BigInt,
-}
-
-// digest a file to a [32]Uint8Array
-async function digest(file: File, verbose = false): Promise<Uint8Array> {
-  let t0 = performance.now();
-  let sum = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
-  if (verbose) console.warn("SHA-256 digest of", file.name, `(${file.size} bytes)`, "took", performance.now() - t0, "ms.");
-  return sum;
-}
-
-// information about this provider to send to the broker
-type ProviderInfo = {
-  name?: string;
-  platform: string;
-  useragent: string;
-};
-
-// updates about the pool capacity
-type PoolInfo = {
-  nmax: number,
-  pool: number,
-}

@@ -44,6 +44,7 @@ export type CompletedExecution = {
   stderr: string,           // standard error, decoded as string
   datafile?: ArrayBuffer,   // the requested datafile contents from filesystem
   trace?: ExportedTrace,    // a trace of events with microsecond unix epochs
+  context?: 'local' | 'remote'
 };
 
 

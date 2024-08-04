@@ -1,6 +1,7 @@
-import * as MessagePack from "@msgpack/msgpack";
-import type { Stream } from "@libp2p/interface";
 import { toReadableStream, toWritableStream } from "@/fn/utilities";
+import type { Stream } from "@libp2p/interface";
+import * as MessagePack from "@msgpack/msgpack";
+import type { RPCServer } from "./netRPCServer";
 
 export interface ClosableTransport {
   close(): Promise<void>;
@@ -28,52 +29,18 @@ export abstract class P2PTransport implements ClosableTransport {
   abstract closed: Promise<any>;
   abstract close: () => Promise<void>;
 
-  // a stream of rpc requests that should be handled
-  abstract rpc?: RPCServer;
+  // a bidirectional stream of rpc requests that should be handled
+  abstract rpc: AsyncChannel<P2PRPCMessage>;
 
   // a bidirectional stream for control messages
   abstract messages: AsyncChannel<unknown>;
 
-  abstract stream?: Stream;
+  // a bidirectional stream of WASMRun objects to be handled and CompletedExecution objects as results
+  abstract queue: Stream;
 }
 
 // re-export the implemented transports
 export { WebRTCTransport } from "./webRTCTransport";
-
-//? +----------------------------------------------------------+
-//? | various types that must be implemented by the transports |
-//? +----------------------------------------------------------+
-
-/** The header of a Go `net/rpc` RPC request. */
-export type NetRPCRequestHeader = { ServiceMethod: string; Seq: BigInt };
-
-/** The header of a Go `net/rpc` RPC response. */
-export type NetRPCResponseHeader = NetRPCRequestHeader & { Error?: string };
-
-/** An RPC decoder is an async generator of RPC request information. */
-export type NetRPCDecoder = AsyncGenerator<RPCRequestInfo, void, undefined>;
-
-/** An RPC encoder takes responses to write and can be closed. */
-export type NetRPCEncoder = { next: RPCResponder; close: () => Promise<void> };
-
-/** The fields of an RPC request used internally. */
-export type RPCRequestInfo = {
-  method: string;
-  seq: BigInt;
-  body: any;
-  error?: string;
-};
-
-/** A function that must be called with an async function to handle the RPC request. */
-export type RPCRequest = (
-  handler: (method: string, body: any) => Promise<any>
-) => Promise<void>;
-
-/** Signature of a function that encodes and sends net/rpc-compatible responses to the requester. */
-export type RPCResponder = (response: RPCRequestInfo) => Promise<void>;
-
-/** An async generator of `RPCRequest`s to be handled. */
-export type RPCServer = AsyncGenerator<RPCRequest, void, undefined>;
 
 //? +-------------------------------------------------------------------+
 //? | a generic wrapper which makes bidirectional streams easier to use |
@@ -154,3 +121,10 @@ export class Libp2pStreamChannel<
 
   closeRead = () => this.stream.closeRead();
 }
+
+export type P2PRPCMessage = {
+  type: "request" | "response";
+  method: string;
+  seq: BigInt;
+  body: any;
+};

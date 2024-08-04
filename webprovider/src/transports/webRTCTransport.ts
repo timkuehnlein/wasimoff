@@ -1,26 +1,16 @@
-import { next, pairs } from "@/fn/utilities";
-import type {
-  AsyncChannel,
-  NetRPCDecoder,
-  NetRPCEncoder,
-  NetRPCRequestHeader,
-  NetRPCResponseHeader,
-  P2PTransport,
-  RPCServer,
-} from "@/transports";
-import { Libp2pStreamChannel } from "@/transports";
+import type { P2PTransport } from "@/transports";
+import { Libp2pStreamChannel, type P2PRPCMessage } from "@/transports";
 import { gossipsub as pubsub } from "@chainsafe/libp2p-gossipsub";
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
 import { bootstrap } from "@libp2p/bootstrap";
 import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { identify } from "@libp2p/identify";
-import type { Stream } from "@libp2p/interface";
+import type { Stream, Connection } from "@libp2p/interface";
 import { pubsubPeerDiscovery } from "@libp2p/pubsub-peer-discovery";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
 import * as filters from "@libp2p/websockets/filters";
-import * as MessagePack from "@msgpack/msgpack";
 import { createLibp2p, type Libp2p, type Libp2pOptions } from "libp2p";
 
 //? +--------------------------------------------------------------+
@@ -28,239 +18,104 @@ import { createLibp2p, type Libp2p, type Libp2pOptions } from "libp2p";
 //? +--------------------------------------------------------------+
 
 const WASMOFF_MSG_PROTOCOL = "/wasmoff/msg/0.0.1";
+const WASMOFF_RPC_PROTOCOL = "/wasmoff/rpc/0.0.1";
+const WASMOFF_QUEUE_PROTOCOL = "/wasmoff/queue/0.0.1";
 
 /** `WebRTCTransport` implements a WebRTC connection to peers, on
- * which there is an asymmetric channel for control messages and an async generator
- * of received RPC requests. Use `WebRTCTransport.connect()` to instantiate. */
+ * which there is an asymmetric channel for control messages, an async
+ * channel of RPC requests and responses, and a WASMRun queue channel.
+ * Use `WebRTCTransport.connect()` to instantiate. */
 export class WebRTCTransport implements P2PTransport {
-  /** The incoming RPC requests in an `AsyncGenerator`. */
-  public rpc?: RPCServer = undefined;
-
   private constructor(
+    /** A bidirectional RPC channel. */
+    public rpc: Libp2pStreamChannel<P2PRPCMessage>,
+
+    /** Bare stream underneath RPC channel. */
+    private rpcStream: Stream,
+
     /** A bidirectional channel for control messages. */
     public messages: Libp2pStreamChannel,
 
-    public stream: Stream,
+    /** Bare stream underneath messages channel. */
+    private messagesStream: Stream,
+
+    /** A bidirectional stream of WASMRun objects to be handled and CompletedExecution objects as results */
+    public queue: Stream,
 
     /** Promise that is resolved or rejected when the transport is closed. */
     public closed: Promise<unknown>,
 
-    /** The underlying [`LibP2P`]() node. */
+    /** The underlying [`LibP2P`](https://github.com/libp2p/js-libp2p) node. */
     private node: Libp2p
   ) {}
 
   // establish the connection
   public static async connect(url: string): Promise<WebRTCTransport> {
-    // establish connection and wait for readiness
+    // create peer discovering libp2p node
     const node = await createLibp2p(options(url));
 
-    const { stream, messages } = await new Promise<{
-      stream: Stream;
-      messages: Libp2pStreamChannel;
-    }>(async (resolve, reject) => {
-      setTimeout(() => reject(new Error("timeout")), 1000 * 60 * 1);
+    // wait for a new discovered connection, then open outgoing streams
+    const openStreams = async () => {
+      const connection = await discoverConnection(node);
+      const [messagesStream, rpcStream, queueStream] = await Promise.all([
+        connection.newStream(WASMOFF_MSG_PROTOCOL),
+        connection.newStream(WASMOFF_RPC_PROTOCOL),
+        connection.newStream(WASMOFF_QUEUE_PROTOCOL),
+      ]);
+      return { messagesStream, rpcStream, queueStream };
+    };
 
-      await node.handle(
-        WASMOFF_MSG_PROTOCOL,
-        async ({ stream, connection }) => {
-          console.log(
-            `--- opened chat stream over ${connection.multiplexer} ---`
-          );
-          try {
-            const messages = new Libp2pStreamChannel(stream);
+    // wait for incomming stream requests
+    const acceptStreams = async () => {
+      const [messagesStream, rpcStream, queueStream] = await Promise.all([
+        acceptIncomingStream(node, WASMOFF_MSG_PROTOCOL),
+        acceptIncomingStream(node, WASMOFF_RPC_PROTOCOL),
+        acceptIncomingStream(node, WASMOFF_QUEUE_PROTOCOL),
+      ]);
+      return { messagesStream, rpcStream, queueStream };
+    };
 
-            node.removeEventListener("peer:connect");
-            resolve({ stream, messages });
-          } catch (e) {
-            reject(e);
-          }
-        }
-      );
+    // whatever works fastest, open or accept
+    const { messagesStream, rpcStream, queueStream } = await Promise.race([
+      openStreams(),
+      acceptStreams(),
+    ]);
 
-      node.addEventListener("peer:connect", (ev) => {
-        node
-          .getConnections(ev.detail)
-          .filter((c) => c.multiplexer?.includes("webrtc") && !c.streams.length)
-          .forEach(async (c) => {
-            try {
-              const stream = await c.newStream(WASMOFF_MSG_PROTOCOL);
-              const messages = new Libp2pStreamChannel(stream);
-              resolve({ stream, messages });
-            } catch (e) {
-              reject(e);
-            }
-          });
-      });
-    });
+    node.removeEventListener("peer:connect");
+
+    const messages = new Libp2pStreamChannel(messagesStream);
+
+    // instead of adapting to the go net rpc server, we use a simple messagepack channel with custom RPC messages
+    // const rpcEncoder = NetRPCStreamEncoder(toWritableStream(rpcStream));
+    // const rpc = NetRPCStreamServer(toReadableStream(rpcStream), rpcEncoder);
+    const rpc = new Libp2pStreamChannel<P2PRPCMessage>(rpcStream);
 
     const closed = new Promise((resolve, reject) => {
-      node.addEventListener( "stop", (x) => resolve("stopped"));
+      node.addEventListener("stop", (x) => resolve("stopped"));
       // todo react to closed stream and either reconnect or stop node
       // e.g. on creating the readable and writebale, and on disconnection of the peer
     });
 
-    return new WebRTCTransport(messages, stream, closed, node);
+    return new WebRTCTransport(
+      rpc,
+      rpcStream,
+      messages,
+      messagesStream,
+      queueStream,
+      closed,
+      node
+    );
   }
 
   public async close(): Promise<void> {
     // TODO: probably needs promise cancellation in async generators to work correctly
     // https://seg.phault.net/blog/2018/03/async-iterators-cancellation/
     await Promise.allSettled([
-      // (await this.rpc).return(),
-      this.messages.close(),
+      this.rpc.close().then(() => this.rpcStream.close()),
+      this.messages.close().then(() => this.messagesStream.close()),
+      this.queue.close(),
     ]);
     return this.node?.stop();
-  }
-
-  // // await an incoming bidirectional stream for rpc requests
-  // let rpc = NetRPCStreamServer(
-  //   await next(transport.incomingBidirectionalStreams)
-  // );
-
-  // listen for closure and properly exit the streams
-  // this.closed
-  //   .then(async () => Promise.allSettled([messages.close(), rpc.return()]))
-  //   .catch(() => {
-  //     /* don't care */
-  //   });
-}
-
-//? +---------------------------------------------------------------+
-//? | Wrap a bidirectional WebTransport stream in a net/rpc server. |
-//? +---------------------------------------------------------------+
-
-/** Decode MessagePack messages from a `ReadableStream` and yield the decoded RPC requests. */
-export async function* NetRPCStreamDecoder(
-  stream: ReadableStream<Uint8Array>
-): NetRPCDecoder {
-  // decode MessagePack encoded messages and yield [ header, body ] pairs for inner loop
-  const messages = MessagePack.decodeMultiStream(stream, {
-    useBigInt64: true,
-    context: null,
-  });
-
-  try {
-    for await (const { 0: header, 1: body } of pairs<NetRPCRequestHeader, any>(
-      messages
-    )) {
-      // deconstruct the header and yield request information
-      let { ServiceMethod: method, Seq: seq } = header;
-      yield { method, seq, body };
-    }
-  } finally {
-    // release the lock on .return()
-    messages.return();
-  }
-}
-
-/** Lock a `WritableStream` and return a function which encodes RPC responses on it. */
-export function NetRPCStreamEncoder(
-  stream: WritableStream<Uint8Array>
-): NetRPCEncoder {
-  // get a lock on the writer and create a persistent MessagePack encoder
-  const writer = stream.getWriter();
-  const msgpack = new MessagePack.Encoder({
-    useBigInt64: true,
-    initialBufferSize: 65536,
-  });
-
-  return {
-    // anonymous { next, close }
-
-    // encode a chunk as response
-    async next(r) {
-      // encode the response halves into a single buffer
-      // TODO: optimize with less buffer copy operations, e.g. use .encodeSharedRef() or Uint8ArrayList
-      let header = msgpack.encode({
-        ServiceMethod: r.method,
-        Seq: r.seq,
-        Error: r.error,
-      } as NetRPCResponseHeader);
-      let body = msgpack.encode(r.body as any);
-      let buf = new Uint8Array(header.byteLength + body.byteLength);
-      buf.set(header, 0);
-      buf.set(body, header.byteLength);
-      // wait for possible backpressure on stream and then write
-      await writer.ready;
-      return writer.write(buf);
-    },
-
-    // close the writer
-    async close() {
-      return writer.close().then(() => writer.releaseLock());
-    },
-  };
-}
-
-/** Wrap a bidirectional WebTransport stream and return an asynchronous generator of RPC requests to handle. */
-export async function* NetRPCStreamServer(
-  stream: WebTransportBidirectionalStream
-): RPCServer {
-  // pretty logging prefixes
-  const prefixRx = [
-    "%c RPC %c « Call %c %s ",
-    "background: #333; color: white;",
-    "background: skyblue;",
-    "background: #ccc;",
-  ];
-  const prefixTx = [
-    "%c RPC %c Done » %c %s ",
-    "background: #333; color: white;",
-    "background: greenyellow;",
-    "background: #ccc;",
-  ];
-  const prefixErr = [
-    "%c RPC %c Error ",
-    "background: #333; color: white;",
-    "background: firebrick; color: white;",
-  ];
-  const prefixWarn = [
-    "%c RPC %c Warning ",
-    "background: #333; color: white;",
-    "background: goldenrod;",
-  ];
-
-  // create the net/rpc messsagepack codec on the stream
-  const decoder = NetRPCStreamDecoder(stream.readable);
-  const encoder = NetRPCStreamEncoder(stream.writable);
-
-  try {
-    // generator loop
-
-    // for each request .. yield a function that must be called with an async handler
-    for await (const { method, seq, body } of decoder) {
-      console.debug(...prefixRx, method, seq, body);
-      yield async (handler) => {
-        try {
-          // happy path: return result to client
-          let result = await handler(method, body);
-          console.debug(...prefixTx, method, seq, result);
-          await encoder.next({ method, seq, body: result });
-        } catch (error) {
-          // catch errors and report back to client
-          console.warn(...prefixErr, method, seq, error);
-          await encoder.next({
-            method,
-            seq,
-            body: undefined,
-            error: String(error),
-          });
-        }
-      };
-    }
-    console.warn(...prefixWarn, "NetRPCStreamDecoder has ended!");
-  } finally {
-    // handle .return() by closing streams
-
-    // close both directional streams in parallel
-    await Promise.allSettled([
-      // release lock on the decoder, then close the readable
-      await decoder.return().then(() => stream.readable.cancel()),
-
-      // close and release the writer in the encoder
-      //! this will cut off any in-flight requests, unfortunately
-      encoder.close(),
-    ]);
   }
 }
 
@@ -306,4 +161,36 @@ function options(relayUrl: string): Libp2pOptions {
       denyDialMultiaddr: async () => false,
     },
   };
+}
+
+function discoverConnection(node: Libp2p): Promise<Connection> {
+  return new Promise<Connection>(async (resolve, reject) => {
+    setTimeout(() => reject(new Error("timeout")), 1000 * 60 * 1);
+
+    node.addEventListener("peer:connect", (ev) => {
+      const connections = node
+        .getConnections(ev.detail)
+        .filter(
+          (c) => c.multiplexer?.includes("webrtc") && c.streams.length == 0
+        );
+      if (connections.length == 0) return;
+
+      resolve(connections[0]);
+    });
+  });
+}
+
+async function acceptIncomingStream(
+  node: Libp2p,
+  protocol: string
+): Promise<Stream> {
+  return new Promise(async (resolve, reject) => {
+    await node.handle(protocol, async ({ stream, connection }) => {
+      console.log(
+        `--- opened ${protocol} stream over ${connection.multiplexer} ---`
+      );
+
+      resolve(stream);
+    });
+  });
 }

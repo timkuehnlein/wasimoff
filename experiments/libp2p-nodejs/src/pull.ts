@@ -104,8 +104,8 @@ export function toPullSink<T>(sink: Sink<Source<T>>): pull.Sink<T> {
       },
     };
 
-    const source1: AsyncIterable<T> = aIterator;
+    const source: AsyncIterable<T> = aIterator;
 
-    sink(source1);
+    sink(source);
   };
 }

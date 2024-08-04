@@ -63,38 +63,12 @@ export function toReadableStream(stream: Stream): ReadableStream<Uint8Array> {
     },
   });
 }
-// export function toReadableStream(source: Source<Uint8ArrayList | Uint8Array>): ReadableStream<Uint8Array> {
-//   const iterator = getIterator(source);
-//   return new ReadableStream<Uint8Array>({
-//     async pull(controller) {
-//       const { done, value } = await iterator.next();
-//       if (done) controller.close();
-//       const chunk = value;
-
-//       // for await (const chunk of source) {
-//         if (chunk instanceof Uint8ArrayList) {
-//           for (const buf of chunk) {
-//             controller.enqueue(buf);
-//           }
-//         } else {
-//           controller.enqueue(chunk);
-//         }
-//       // }
-//       // controller.close();
-//     },
-//     cancel() {
-//       // Handle cancellation if needed
-//       console.log("Stream cancelled!");
-//     }
-//   });
-// }
 
 /** Create an WritableStream from a `Stream`. */
 export function toWritableStream(stream: Stream): WritableStream<Uint8Array> {
   const lp = lpStream(stream);
   return new WritableStream<Uint8Array>({
     async write(chunk, controller) {
-      console.log("chunk", chunk, typeof chunk);
       try {
         await lp.write(chunk);
       } catch (err) {
@@ -110,22 +84,6 @@ export function toWritableStream(stream: Stream): WritableStream<Uint8Array> {
     },
   });
 }
-
-// export function toWritableStream(sink: Sink<Source<Uint8ArrayList | Uint8Array>, Promise<void>>): WritableStream<Uint8Array> {
-//   return new WritableStream<Uint8Array>({
-//     async write(chunk) {
-//       await sink((async function* () { yield chunk; })());
-//     },
-//     close() {
-//       // Handle stream close if needed
-//       console.log("Stream closed!");
-//     },
-//     abort() {
-//       // Handle stream abort if needed
-//       console.log("Stream aborted!");
-//     }
-//   });
-// }
 
 /** Get the next element from an async iterator. */
 export async function next<T>(iterator: AsyncIterator<T, T, T>): Promise<T>;
@@ -219,3 +177,21 @@ export function serialize<T extends (...args: any[]) => ReturnType<T>>(func: T):
    return link;
  }) as any; // TODO: can't quite figure out proper type inferencing here
 };
+
+// digest a file to a [32]Uint8Array
+export async function digest(file: File, verbose = false): Promise<Uint8Array> {
+  let t0 = performance.now();
+  let sum = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", await file.arrayBuffer())
+  );
+  if (verbose)
+    console.warn(
+      "SHA-256 digest of",
+      file.name,
+      `(${file.size} bytes)`,
+      "took",
+      performance.now() - t0,
+      "ms."
+    );
+  return sum;
+}
