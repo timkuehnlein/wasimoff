@@ -27,6 +27,10 @@ import * as filters from "@libp2p/websockets/filters";
 import * as jsEnv from "browser-or-node";
 import type { Stream } from "@libp2p/interface";
 import { pullStream } from "./pull.js";
+import {
+  exampleInteropLender,
+  pipeNumberToString,
+} from "./pull-stream-lender.js";
 
 // const WEBRTC_PROTOCOL = "/webrtc-signaling/0.0.1";
 const WASMOFF_CHAT_PROTOCOL = "/wasmoff/chat/v1";
@@ -118,7 +122,8 @@ cm.printPeerStoreUpdates(node, "peer:update");
 // handle a simple chat protocol
 await node.handle(WASMOFF_CHAT_PROTOCOL, async ({ stream, connection }) => {
   console.log(`--- opened chat stream over ${connection.multiplexer} ---`);
-  pullStream(stream);
+  // pullStream(stream);
+  pipeNumberToString(stream);
 });
 
 node.addEventListener("peer:connect", (ev) => {
@@ -127,7 +132,8 @@ node.addEventListener("peer:connect", (ev) => {
     .filter((c) => c.multiplexer?.includes("webrtc") && !c.streams.length)
     .forEach(async (c) => {
       const stream = await c.newStream(WASMOFF_CHAT_PROTOCOL);
-      pullStream(stream);
+      // pullStream(stream);
+      exampleInteropLender(stream);
     });
 });
 

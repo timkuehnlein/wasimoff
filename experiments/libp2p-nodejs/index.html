@@ -12,11 +12,19 @@
     <button onclick="import('/src/run-listener.ts')">Start Listener</button>
     <button onclick="import('/src/run-dialer.ts')">Start Dialer</button>
     <button onclick="import('/src/run-peer.ts')">Start Peer</button>
+
     <br />
     <br />
+
     <p>A <a href="https://pull-stream.github.io/">Pull Stream</a> only creates values when they are being condumed.</p>
     <button onclick="import('/src/pull.ts').then(p => p.basicPullExample())">Lazy Pull Example</button>
     <p>A <a href="https://pull-stream.github.io/">Pull Stream</a> can be translated to a <a href="https://gist.github.com/alanshaw/591dc7dd54e4f99338a347ef568d6ee9">streaming iterable</a>, without changing this behaviour.</p>
     <button onclick="import('/src/pull.ts').then(p => p.basicPullToIterableExample())">Lazy Pull To Iterable Example</button>
+
+    <br />
+    <br />
+
+    <p><a href="https://github.com/elavoie/pull-lend-stream/tree/master">Stream lender</a> allows lending sub streams to consumers. They consume lazily, the order remains. Allows for work stealing among peers.</p>
+    <button onclick="import('/src/pull-stream-lender.ts').then(l => l.exampleLender())">Run Lender</button>
   </body>
 </html>
