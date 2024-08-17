@@ -16,6 +16,7 @@ import type { ConnectionStore, PoolInfo, ProviderInfo, UploadedFile } from ".";
 import { useFilesystem } from "./filesystem";
 import { useScheduler } from "./scheduler";
 import { useTerminal } from "./terminal";
+import { useConfiguration } from "@/stores/configuration";
 
 /** The connection store abstracts away the details of the underlying transport. */
 export const useP2PConnection = defineStore<string, ConnectionStore>(
@@ -27,6 +28,7 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
     const terminal = useTerminal();
     const filesystem = useFilesystem();
     const scheduler = useScheduler();
+    const conf = useConfiguration();
 
     // use the worker pool needed to execute WASM
     let pool = useWorkerPool();
@@ -69,7 +71,7 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
       return transport.value!.queue;
     });
 
-    async function connect(url: string, certhash?: string) {
+    async function connect(url: string, certhash?: string): Promise<void> {
       // close any previous connections
       if (transport.value) transport.value.close();
       transport.value = null;
@@ -102,6 +104,7 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
 
       // --------- MESSAGES ---------
       // send a "greeting" control message
+      try {
       await send("hello", {
         sent: new Date().toISOString(),
       });
@@ -109,11 +112,18 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
       await send("hello", {
         sent: new Date().toISOString(),
       });
+    } catch (err) {
+      console.error(...prefix, "Failed to send hello message:", err);
+    }
 
       // send information about this provider
+      try {
       providerInfo();
       poolInfo();
       watch(storeToRefs(pool).count, async () => poolInfo());
+      } catch (err) {
+        console.error(...prefix, "Failed to send provider info:", err);
+      }
 
       // log received messages
       (async () => {
@@ -177,15 +187,20 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
       const decoder = new MessagePack.Decoder({ useBigInt64: true });
       const encoder = new MessagePack.Encoder({ useBigInt64: true });
 
-      // as callee, we need to handle requests
-      if (queue.value.direction === "inbound") {
+      const inferRole = !conf.role || conf.role === "peer";
+      // as provider or if not specified and callee, we need to handle requests
+      console.log(...prefix, "Role:", conf.role, "Infer:", inferRole);
+      if (
+        conf.role === "provider" ||
+        (inferRole && queue.value.direction === "inbound")
+      ) {
+        console.log(...prefix, "Handling queue requests");
         // pipeNumberToString(queue.value);
         handleRequests(queue.value);
       }
-      // as caller, we need to register the remote peer with the scheduler
-      else
-      {
-        console.log("Registering remote consumer");
+      // as client or if not specified and caller, we need to register the remote peer with the scheduler
+      else {
+        console.log(...prefix, "Registering remote consumer");
         scheduler.registerRemoteBorrower(queue.value);
       }
 
@@ -204,13 +219,14 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
             ),
           (s) =>
             map(s, async (body) => {
-              console.log(`Received: ${body.id}`, body);
-              const result: CompletedExecution = await methods["run"](
+              // console.log(`Received: ${body.id}`, body);
+              const result: CompletedExecution = await Calls.run(
                 body,
-                () => {}
+                () => {},
+                pool
               );
               result.context = "remote";
-              console.log(...prefix, "Stream call handler result", result);
+              // console.log(...prefix, "Stream call handler result", result);
               return result;
             }),
           (s) => map(s, (chunk) => encoder.encode(chunk)),

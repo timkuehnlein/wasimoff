@@ -1,5 +1,6 @@
 import { Calls } from "@/fn/calls";
 import { borrower, borrowerForRemote } from "@/fn/pullUtilities";
+import { exportTracesToFile, Trace, type ExportedTrace } from "@/fn/trace";
 import type { RunConfiguration, WASMRun } from "@/fn/types";
 import { PushableQueue } from "@/queue/pushableQueue";
 import { useWorkerPool } from "@/stores/workerpool";
@@ -13,9 +14,10 @@ import lendStream from "pull-lend-stream";
 import pull, { type Through } from "pull-stream";
 import toIterator from "pull-stream-to-async-iterator";
 import type { Uint8ArrayList } from "uint8arraylist";
+import { useConfiguration } from "./configuration";
 
 export type SchedulerStore = {
-  schedule(configuration: RunConfiguration): Promise<void>;
+  schedule(configuration: RunConfiguration, tracer?: Trace): Promise<void>;
   registerRemoteBorrower(
     queue: Duplex<
       AsyncGenerator<Uint8ArrayList>,
@@ -24,6 +26,10 @@ export type SchedulerStore = {
     >
   ): void;
   registerLocalBorrowers(): void;
+  getTraces(): Array<{
+    trace: ExportedTrace;
+    context?: "remote" | "local";
+  }>;
 };
 
 /** The scheduler store abstracts away the details of the work queuing. */
@@ -34,20 +40,44 @@ export const useScheduler = defineStore<string, SchedulerStore>(
 
     // use the worker pool needed to execute WASM
     const pool = useWorkerPool();
+    // use the configuration
+    const config = useConfiguration();
     // hold queue of tasks
-    const queue = new PushableQueue<WASMRun>();
+    const queue = new PushableQueue<{ run: WASMRun; tracer?: Trace }>();
     // stream lender
     const lender = lendStream<WASMRun, CompletedExecution>();
 
+    // var evaluationLoopCount: number | null = config.loop;
+    var evaluationLoopCount: number | null = 64;
+
+    var currentTraces: Array<{
+      trace: ExportedTrace;
+      context?: "remote" | "local";
+    }> = [];
+
+    function getTraces(): Array<{
+      trace: ExportedTrace;
+      context?: "remote" | "local";
+    }> {
+      const traces = currentTraces;
+      clearTraces();
+      return traces;
+    }
+
+    function clearTraces(): void {
+      currentTraces = [];
+    }
+
     // console sink
-    const stringSink: Sink<Source<CompletedExecution>, Promise<void>> = async (
+    const stringSink: Sink<Source<CompletedExecution | undefined>, Promise<void>> = async (
       source
     ) => {
       for await (const completedExecution of source) {
         console.log(
           "Result",
-          completedExecution.context,
-          completedExecution.exitcode === 0 ? "SUCCESS" : "ERROR"
+          completedExecution?.context,
+          completedExecution?.exitcode === 0 ? "SUCCESS" : "ERROR",
+          completedExecution?.trace
         );
       }
     };
@@ -67,12 +97,54 @@ export const useScheduler = defineStore<string, SchedulerStore>(
     pipe(
       queue.queue,
       (s) =>
-        map<WASMRun, WASMRun>(s, (x) => {
-          console.log("sending", x);
-          return x;
-        }),
+        map<{ run: WASMRun; tracer?: Trace }, WASMRun>(
+          s,
+          async ({ run, tracer }) => {
+            // console.log("sending", run);
+            if (tracer) {
+              await tracer.now("local: selected from queue");
+              run.currentTrace = await tracer.export();
+            }
+            return run;
+          }
+        ),
       // toIteratorTransform(pullPipe),
       (source) => toIterator(pullPipe(toPull(source))),
+      (source) =>
+        map<CompletedExecution, CompletedExecution>(source, async (ce) => {
+          if (!ce.trace) return ce;
+
+          const trace = new Trace("local: completed");
+          const fullTrace = await trace.export(ce.trace);
+
+          currentTraces.push({ trace: fullTrace, context: ce.context });
+          return ce;
+        }),
+      (source) =>
+        map(source, async (ce) => {
+          if (evaluationLoopCount == null) return ce;
+
+          if (evaluationLoopCount > 0) {
+            // add new task to the queue
+            const configuration: RunConfiguration = JSON.parse(
+              `{ "bin": "tsp.wasm", "trace": true, "exec": [{ "args": ["rand", "11"] }] }`
+            );
+            const tracer = new Trace("local: start");
+            schedule(configuration, tracer);
+
+            evaluationLoopCount--;
+          } else {
+            const traces = getTraces();
+            if (traces.length === 0) {
+              console.error("No traces available.");
+              return;
+            }
+            exportTracesToFile(traces, "traces");
+            evaluationLoopCount = null;
+          }
+
+          return ce;
+        }),
       stringSink
     );
 
@@ -101,15 +173,26 @@ export const useScheduler = defineStore<string, SchedulerStore>(
               }
             }
           },
-          pool.count
+          // pool.count
+          1
         )
       );
       console.log(...prefix, `${pool.count} local borrowers active`);
     }
 
-    async function schedule(configuration: RunConfiguration): Promise<void> {
+    async function schedule(
+      configuration: RunConfiguration,
+      tracerA?: Trace
+    ): Promise<void> {
       const tasks = await populateTasks(configuration);
-      tasks.forEach((task) => queue.push(task));
+      tasks.forEach(async (task) => {
+        var tracer: Trace | undefined;
+        if (configuration.trace && !tracerA) {
+          tracer = new Trace("local: decoded");
+        }
+        tracerA?.now("local: decoded");
+        queue.push({ run: task, tracer: tracer ?? tracerA });
+      });
     }
 
     const registerRemoteBorrower = (
@@ -121,7 +204,7 @@ export const useScheduler = defineStore<string, SchedulerStore>(
     ) => {
       // borrow a substream to be handled by a remote worker
       lender.lendStream(
-        borrowerForRemote<WASMRun, CompletedExecution>(borrower, 2)
+        borrowerForRemote<WASMRun, CompletedExecution>(borrower, 1, 0)
       );
     };
 
@@ -129,6 +212,7 @@ export const useScheduler = defineStore<string, SchedulerStore>(
       schedule,
       registerRemoteBorrower,
       registerLocalBorrowers,
+      getTraces,
     };
   }
 );

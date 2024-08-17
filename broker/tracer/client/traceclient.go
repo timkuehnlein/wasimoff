@@ -16,7 +16,7 @@ import (
 
 // fixed broker url and payload for now
 const BROKER_RUN string = "http://localhost:4080/api/broker/v1/run"
-const PAYLOAD string = `{ "bin": "tsp.wasm", "trace": true, "exec": [{ "args": [ "rand", "8" ] }] }`
+const PAYLOAD string = `{ "bin": "tsp.wasm", "trace": true, "exec": [{ "args": ["rand", "9"] }] }`
 
 func main() {
 	client := http.Client{Timeout: 10 * time.Second}
@@ -39,7 +39,7 @@ func Averaged(client *http.Client, n int) {
 		}
 	}
 	// calculate averages
-	averages := make([]TraceEvent, len(traces[0]))
+	averages := make([]TraceEvent, len(traces[0]) + 1)
 	for x, event := range traces[0] {
 		averages[x].Label = event.Label
 		step := 0.0
@@ -48,6 +48,13 @@ func Averaged(client *http.Client, n int) {
 		}
 		averages[x].Step = (step / float64(len(traces)))
 	}
+
+	// calculate total
+	averages[len(averages)-1].Label = "total"
+	for i := 0; i < (len(averages)-1); i++ {
+		averages[len(averages)-1].Step += averages[i].Step
+	}
+
 	// encode averages to stdout as csv
 	w := csv.NewWriter(os.Stdout)
 	defer w.Flush()

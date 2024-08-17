@@ -9,6 +9,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"os"
 	"strings"
 	"wasmoff/broker/provider"
 	"wasmoff/broker/storage"
@@ -204,6 +205,27 @@ func UploadHandler(store *provider.ProviderStore) http.HandlerFunc {
 			json.NewEncoder(w).Encode(errMap)
 		} else {
 			fmt.Fprintf(w, "Upload OK, %d bytes", len(bytes))
+		}
+	}
+}
+
+// The DownloadHandler returns a HTTP handler, which takes the POSTed body
+// and downloads it.
+func DownloadHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// read the expected binary or return a "Bad Request"
+		bytes, err := uploadedFile(r.Header.Get("content-type"), r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		
+		// downloads bytes as file to disk
+		err = os.WriteFile("/data/result.csv", bytes, 0644)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			fmt.Print("Error writing file", err)
+			return
 		}
 	}
 }

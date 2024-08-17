@@ -21,6 +21,9 @@ type Configuration struct {
 	// TransportURL is the URL that is given to external clients to connect to the WebTransport socket
 	TransportURL string `split_words:"true" default:"https://localhost:4443/transport"`
 
+	// RelayURL is the URL that is given to external clients to connect to the relay
+	RelayURL string `split_words:"true" default:"/dns4/localhost/tcp/30000/ws/p2p/12D3KooWD91XkY9wXXwQBXYWoLdS5EiB3fu3MXoax2X3erowywwK"`
+
 	// StaticFiles is the path to the directory with the webprovider frontend dist
 	StaticFiles string `split_words:"true" default:"../webprovider/dist/"`
 }

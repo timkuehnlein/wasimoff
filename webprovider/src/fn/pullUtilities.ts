@@ -65,15 +65,20 @@ export function borrowerForRemote<In, Out>(
     Source<Uint8ArrayList | Uint8Array>,
     Promise<void>
   >,
-  batchSize: number = 1
+  batchSize: number = 1,
+  latency: number = 0
 ): Borrower<In, Out> {
+  const encoder = new MessagePack.Encoder({ useBigInt64: true });
+  const decoder = new MessagePack.Decoder({ useBigInt64: true });
+
   return function (err: Error | null, stream: SubStream<In, Out>): void {
     if (err) return console.log(err.message);
 
     const encodeInTypeToStream: Sink<Source<In>> = (sr: Source<In>) =>
       pipe(
         sr,
-        (s) => map(s, (n) => MessagePack.encode(n)),
+        (s) => map(s, async (n) => (await new Promise((resolve) => setTimeout(() => resolve(n), latency)) as In)),
+        (s) => map(s, (n) => encoder.encode(n)),
         (s) => lengthPrefixed.encode(s),
         consumer.sink
       );
@@ -81,7 +86,8 @@ export function borrowerForRemote<In, Out>(
     const decodeStreamToOutType: Source<Out> = pipe(
       consumer.source,
       (s) => lengthPrefixed.decode(s),
-      (s) => map(s, (array) => MessagePack.decode(array.subarray()) as Out)
+      (s) => map(s, (array) => decoder.decode(array.subarray()) as Out),
+      (s) => map(s, async (n) => (await new Promise((resolve) => setTimeout(() => resolve(n), latency)) as Out))
     );
 
     const encodedRemoteStreamAsPull: pull.Duplex<Out, In> = {

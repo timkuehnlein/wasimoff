@@ -122,6 +122,7 @@ export class WASMRunner {
     envs: string[],
     options?: AdvancedExecutionOptions,
     trace?: Trace & ProxyMarked,
+    currentTrace?: ExportedTrace,
     verbose: boolean = this.verbose,
   ): Promise<CompletedExecution> {
     try {
@@ -209,7 +210,7 @@ export class WASMRunner {
         // TODO: decoding is fine for now but generally shouldn't as outputs can be binary
         stdout: new TextDecoder().decode((<OpenFile>shim.fds[1]).file.data),
         stderr: new TextDecoder().decode((<OpenFile>shim.fds[2]).file.data),
-        trace: await trace?.export(),
+        trace: await trace?.export(currentTrace),
       };
       if (verbose) console.debug(...this.prefix, "Finished execution:", {
         stdout: output.stdout, stderr: output.stderr,

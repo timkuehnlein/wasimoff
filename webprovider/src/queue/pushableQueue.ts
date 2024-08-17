@@ -9,6 +9,7 @@ export class PushableQueue<T> {
 
   public push(item: T): void {
     this.queue.push(item);
+    (item as any).tracer?.now("local: queued");
   }
 
   public onEnd(error?: Error): void {

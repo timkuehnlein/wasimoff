@@ -43,13 +43,16 @@ func main() {
 	http.HandleFunc(apiPrefix+"/upload", scheduler.UploadHandler(&store))
 
 	// return configuration for webtransport connections
-	http.HandleFunc(apiPrefix+"/config", server.TransportConfigHandler(conf.TransportURL))
+	http.HandleFunc(apiPrefix+"/config", server.TransportConfigHandler(conf.TransportURL, conf.RelayURL))
 
 	// webtransport endpoint to upgrade connection
 	http.HandleFunc("/transport", provider.WebTransportHandler(server, &store))
 
 	// serve static files for frontend
 	http.Handle("/", http.FileServer(http.Dir(conf.StaticFiles)))
+	
+	// accept result csv from peers
+	http.HandleFunc(apiPrefix+"/download", scheduler.DownloadHandler())
 
 	// start listening on tls and quic/webtransport
 	var httproto string

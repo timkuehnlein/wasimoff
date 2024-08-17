@@ -1,4 +1,7 @@
 // expected body type for a WASM run configuration
+
+import type { ExportedTrace } from "./trace";
+
 // see provider.go WASMRun struct
 export type WASMRun = {
   id: string;
@@ -9,6 +12,7 @@ export type WASMRun = {
   loadfs?: string[];
   datafile?: string;
   trace: boolean;
+  currentTrace?: ExportedTrace;
 };
 
 type ParametrizedRun = {

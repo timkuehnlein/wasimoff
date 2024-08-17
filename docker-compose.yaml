@@ -1,8 +1,9 @@
 version: "3.8"
 services:
 
-  broker:
-    image: ansemjo/wasimoff:starless24-broker
+  # only needed to serve webpage
+  server:
+    image: ansemjo/wasimoff:starless24-server-p2p
     build:
       context: ./
       target: wasimoff
@@ -20,22 +21,67 @@ services:
       WASIMOFF_QUIC_KEY: ""
       # external URL to WebTransport endpoint
       WASIMOFF_TRANSPORT_URL: "https://localhost:4443/transport"
+      WASIMOFF_RELAY_URL: "/dns4/localhost/tcp/30000/ws/p2p/12D3KooWD91XkY9wXXwQBXYWoLdS5EiB3fu3MXoax2X3erowywwK"
     ports:
       - 4080:4080
-      - 4443:4443/udp
-
-  provider01:
-    image: ansemjo/wasimoff:starless24-provider
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+    
+  relay:
+    image: ansemjo/wasimoff:starless24-relay
     build:
       context: ./
-      target: provider
+      target: relay
+    restart: unless-stopped
+    network_mode: host
+    ports:
+      - 30000:30000
+
+  client-peer:
+    image: ansemjo/wasimoff:starless24-peer
+    build:
+      context: ./
+      target: peer
     # network_mode: service:broker
     network_mode: host
     restart: unless-stopped
     depends_on:
-      broker:
-        condition: service_healthy
+      - relay
+    # depends_on:
+    #   broker:
+    #     condition: service_healthy
     #entrypoint: [ "ash", "-c", "sleep 1000000" ]
     environment:
       WASIMOFF_BROKER: "http://localhost:4080/"
       WASIMOFF_WORKERS: "1"
+      WASIMOFF_PEER_ROLE: "client"
+    ports:
+      - 443:443
+    # profiles:
+      # - chrome
+  
+  peer01:
+    image: ansemjo/wasimoff:starless24-peer
+    build:
+      context: ./
+      target: peer
+    # network_mode: service:broker
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - relay
+    # depends_on:
+    #   broker:
+    #     condition: service_healthy
+    #entrypoint: [ "ash", "-c", "sleep 1000000" ]
+    environment:
+      WASIMOFF_BROKER: "http://localhost:4080/"
+      WASIMOFF_WORKERS: "1"
+      # WASIMOFF_PEER_ROLE defaults to "provider"
+      WASIMOFF_PEER_ROLE: "provider"
+    ports:
+      - 443:443
+    # profiles:
+    #   - chrome

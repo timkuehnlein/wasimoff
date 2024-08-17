@@ -1,5 +1,8 @@
 // use polyfills for browser quirks
 import "@/polyfills";
+// for traces csv export
+import { Buffer as BufferPolyfill } from 'buffer'
+globalThis.Buffer = BufferPolyfill;
 
 // use global CSS base
 import "@/assets/main.css";

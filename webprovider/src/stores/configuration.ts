@@ -8,9 +8,12 @@ type Configuration = {
   workers: "max" | number | null;
   // broker transport URL and certificate hash
   transport: string | null;
+  relay: string | null;
   certhash: string | undefined | null;
   // endpoint for server config
   configpath: string | null;
+  // role of the node (client tries to connect to provider, provider listens for clients, peer does both)
+  role: "peer" | "provider" | "client" | null;
 }
 
 // parse configuration from URL fragment and expose for application
@@ -35,15 +38,17 @@ export const useConfiguration = defineStore("Configuration", () => {
       return n;
     })(),
     transport: fragments.get("transport"),
+    relay: fragments.get("relay"),
     certhash: fragments.get("certhash"),
     configpath: fragments.get("config"),
+    role: fragments.get("role") as "peer" | "provider" | "client" | null,
   };
 
 
   // ---------- fetch configuration from server via http --------- //
   const serverconf: Configuration = reactive({
     // everything null by default until fetched
-    autoconnect: null, workers: null, transport: null, certhash: null, configpath: null,
+    autoconnect: null, workers: null, transport: null, relay: null, certhash: null, configpath: null, role: null,
   });
 
   async function fetchConfig(path?: string) {
@@ -56,6 +61,7 @@ export const useConfiguration = defineStore("Configuration", () => {
     let json = await response.json();
     // set values from json, where it makes sense
     if (typeof json["transport"] === "string") serverconf.transport = json["transport"];
+    if (typeof json["relay"] === "string") serverconf.relay = json["relay"];
     if (typeof json["certhash"]  === "string") serverconf.certhash  = json["certhash"];
   }
 
@@ -63,10 +69,12 @@ export const useConfiguration = defineStore("Configuration", () => {
   // ---------- default values --------- //
   const defaultconf: Configuration = {
     autoconnect: false,
-    workers: "max",
+    workers: 1,
     transport: null,
+    relay: "/dns4/localhost/tcp/30000/ws/p2p/12D3KooWD91XkY9wXXwQBXYWoLdS5EiB3fu3MXoax2X3erowywwK",
     certhash: undefined,
     configpath: window.location.origin + "/api/broker/v1/config",
+    role: null,
   };
 
 
@@ -74,13 +82,15 @@ export const useConfiguration = defineStore("Configuration", () => {
   const autoconnect = computed(() => firstOf(fragmentconf.autoconnect, defaultconf.autoconnect));
   const workers = computed(() => firstOf(fragmentconf.workers, defaultconf.workers));
   const transport = computed(() => firstOf(fragmentconf.transport, serverconf.transport, defaultconf.transport));
+  const relay = computed(() => firstOf(fragmentconf.relay, serverconf.relay, defaultconf.relay));
   const certhash = computed(() => firstOf(fragmentconf.certhash, serverconf.certhash, defaultconf.certhash));
+  const role = computed(() => firstOf(fragmentconf.role, defaultconf.role));
   const configpath = firstOf(fragmentconf.configpath, defaultconf.configpath);
 
 
   return {
     fragmentconf, serverconf, defaultconf, fetchConfig,
-    autoconnect, workers, transport, certhash, configpath,
+    autoconnect, workers, transport, relay, certhash, role, configpath,
   };
 });
 

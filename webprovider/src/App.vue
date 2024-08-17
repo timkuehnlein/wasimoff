@@ -2,6 +2,7 @@
 
 import Terminal from "@/components/Terminal.vue";
 import Controls from "@/components/Controls.vue";
+import Evaluation from "@/components/Evaluation.vue";
 
 const title = "wasimoff";
 
@@ -23,7 +24,12 @@ terminal.log(`Hello, ${title}!`, LogType.Black);
   <div class="field box">
 
     <!-- worker pool and transport controls -->
+     <Suspense>
     <Controls/>
+    </Suspense>
+
+    <label class="label has-text-grey-dark">Evaluation</label>
+    <Evaluation/>
 
     <!-- virtual console for worker output -->
     <label class="label has-text-grey-dark">Terminal <a @click="terminal.clear()" title="Clear messages">×</a></label>

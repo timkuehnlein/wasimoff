@@ -12,7 +12,7 @@ export namespace Calls {
 /** Execute a stored WASI executable via the /run endpoint in Broker. */
 export async function run(body: any, next: () => void, pool: MinimalWorkerPoolStore): Promise<CompletedExecution> {
     // expected body type
-    let { id, binary, args, envs, stdin, loadfs, datafile, trace } =
+    let { id, binary, args, envs, stdin, loadfs, datafile, trace, currentTrace } =
       body as WASMRun;
     // maybe start a trace
     let tracer: Trace | undefined;
@@ -31,7 +31,7 @@ export async function run(body: any, next: () => void, pool: MinimalWorkerPoolSt
       }, {} as { [k: string]: string });
     if (datafile) options.datafile = datafile;
     if (stdin) options.stdin = stdin;
-    tracer?.now("rpc: parsed options");
+    // tracer?.now("rpc: parsed options");
     return await pool.exec(async (worker) => {
       tracer?.now("rpc: pool.exec got a worker");
       return await worker.run(
@@ -40,7 +40,8 @@ export async function run(body: any, next: () => void, pool: MinimalWorkerPoolSt
         [binary, ...args],
         envs,
         options,
-        trace ? proxy(tracer!) : undefined
+        trace ? proxy(tracer!) : undefined,
+currentTrace
       );
     }, next);
   }

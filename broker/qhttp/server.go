@@ -135,7 +135,7 @@ func (s *Server) ListenAndServe() error {
 }
 
 // TransportConfigHandler returns a HandlerFunc replying with the URL and certificate hash for WebTransport connections
-func (s *Server) TransportConfigHandler(transport string) func(http.ResponseWriter, *http.Request) {
+func (s *Server) TransportConfigHandler(transport string, relay string) func(http.ResponseWriter, *http.Request) {
 	// encode certhash, if using a selfsigned certificate
 	var certhash string
 	if s.tls.selfsigned {
@@ -148,9 +148,11 @@ func (s *Server) TransportConfigHandler(transport string) func(http.ResponseWrit
 		Transport string `json:"transport"`
 		// undefined certhash means the certificate must be trusted
 		Certhash string `json:"certhash,omitempty"`
+		// URL for relay connections
+		Relay string `json:"relay"`
 	}
 	// encode the payload for endpoint
-	payload := confPayload{transport, certhash}
+	payload := confPayload{transport, certhash, relay}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		w.Header().Set("access-control-allow-origin", "*") // TODO: proper CORS

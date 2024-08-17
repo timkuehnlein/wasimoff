@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
+import type { RunConfiguration } from "@/fn/types";
 
 // terminal for logging
 import { useTerminal, LogType } from "@/stores/terminal";
@@ -21,6 +22,10 @@ const pool = useWorkerPool();
 import { useConnection } from "@/stores";
 const conn = useConnection();
 
+// scheduler for running tasks
+import { useScheduler } from "@/stores/scheduler";
+const scheduler = useScheduler();
+
 
 // ---------- TRANSPORT ---------- //
 
@@ -31,13 +36,27 @@ async function connect() {
   try {
     await conf.fetchConfig(transportConfig.value);
   } catch (err) { terminal.warn(String(err)); }
+
+  if (!conf.relay) {
+    terminal.error("No relay found in configuration.");
+    return;
+  }
+
   try {
-    await conn.connect(conf.transport, conf.certhash);
+    await conn.connect(conf.relay, conf.certhash);
   } catch (err) { terminal.error(String(err)); }
 }
 
 // connect automatically
-if (conf.autoconnect) setTimeout(connect, 100);
+if (conf.autoconnect) {
+  // read file from assets
+  const file = await fetch("tsp.wasm");
+  const buffer = await file.arrayBuffer();
+  opfs.store(buffer, "tsp.wasm");
+  console.log("Stored tsp.wasm in OPFS.");
+
+  setTimeout(connect, 1000);
+}
 
 async function rmrf() {
   let files = await opfs.rmrf()
@@ -60,8 +79,8 @@ async function listdir() {
 
 function filesize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024**2) return `${(bytes/1024).toFixed(2)} KiB`;
-  return `${(bytes/1024**2).toFixed(2)} MiB`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(2)} KiB`;
+  return `${(bytes / 1024 ** 2).toFixed(2)} MiB`;
 }
 
 async function killall() {
@@ -80,8 +99,47 @@ async function shutdown() {
 // class bindings for the transport url field
 const connectionStatus = computed(() => conn.connected
   ? { "is-success": true, "has-text-success": true }
-  : { "is-danger": false,  "has-text-danger": false }
+  : { "is-danger": false, "has-text-danger": false }
 );
+
+const wasmFile = ref<File | null>();
+const jsonFile = ref<File | null>();
+
+function onWasmFileChanged($event: Event) {
+  const target = $event.target as HTMLInputElement;
+  if (target && target.files) {
+    wasmFile.value = target.files[0];
+  }
+}
+
+function onJsonFileChanged($event: Event) {
+  const target = $event.target as HTMLInputElement;
+  if (target && target.files) {
+    jsonFile.value = target.files[0];
+  }
+}
+
+async function saveFile(file: File | null | undefined) {
+  if (file) {
+    opfs.store(await file.arrayBuffer(), file.name).then(() => {
+      terminal.success(`Stored file: ${file.name}`);
+    }).catch(err => {
+      terminal.error(String(err));
+    });
+  }
+}
+
+async function run() {
+  if (jsonFile.value == null) {
+    terminal.error("No JSON configuration file uploaded.");
+    return;
+  }
+
+  const text = await jsonFile.value.text();
+  const configuration: RunConfiguration = JSON.parse(text);
+
+  scheduler.schedule(configuration);
+}
 
 
 // ---------- WORKER POOL ---------- //
@@ -126,8 +184,8 @@ async function runloadtesting(iterations: number = 1000) {
     await new Promise<void>(async next => {
       let task = pool.exec(async worker => {
         try {
-          await worker.run(String(count), wasm, ["tsp", "rand", "8"], [], undefined, undefined, true);
-        } catch(err) {
+          await worker.run(String(count), wasm, ["tsp", "rand", "8"], [], undefined, undefined, undefined, true);
+        } catch (err) {
           console.error("oops:", err);
           // just wait for OOM errors
           if (String(err).includes("Out of memory")) {
@@ -164,20 +222,60 @@ async function runloadtesting(iterations: number = 1000) {
             style="min-width: 100px;"><!-- hotfix for type="number" input ... no problem with type="text" -->
         </div>
         <div class="control">
-          <button class="button is-family-monospace is-info" @click="addWorker" :disabled="pool.count == pool.nmax" title="Add a WASM Runner to the Pool">+</button>
+          <button class="button is-family-monospace is-info" @click="addWorker" :disabled="pool.count == pool.nmax"
+            title="Add a WASM Runner to the Pool">+</button>
         </div>
         <div class="control">
-          <button class="button is-family-monospace is-info" @click="terminateWorker" :disabled="pool.count == 0" title="Remove a WASM Runner from the Pool">-</button>
+          <button class="button is-family-monospace is-info" @click="terminateWorker" :disabled="pool.count == 0"
+            title="Remove a WASM Runner from the Pool">-</button>
         </div>
         <div class="control">
-          <button class="button is-info" @click="fillWorkers" :disabled="pool.count == pool.nmax" title="Add WASM Runners to maximum capacity">Fill</button>
+          <button class="button is-info" @click="fillWorkers" :disabled="pool.count == pool.nmax"
+            title="Add WASM Runners to maximum capacity">Fill</button>
         </div>
       </div>
 
       <label class="label has-text-grey-dark">Origin-Private Filesystem</label>
       <div class="buttons">
         <button class="button is-family-monospace is-success" @click="listdir" title="List files in OPFS">ls</button>
-        <button class="button is-family-monospace is-danger" @click="rmrf" title="Delete all files in OPFS">rm -rf</button>
+        <button class="button is-family-monospace is-danger" @click="rmrf" title="Delete all files in OPFS">rm
+          -rf</button>
+      </div>
+
+      <label class="label has-text-grey-dark">Upload</label>
+      <div class="field">
+        <div class="file has-name is-info">
+          <label class="file-label">
+            <input class="file-input" type="file" accept="application/wasm" @change="onWasmFileChanged($event)" />
+            <span class="file-cta" title="Upload Wasm binary">
+              <span class="file-label">Upload a file</span>
+            </span>
+            <span class="file-name">{{ wasmFile?.name ?? "No file uploaded" }}</span>
+          </label>
+        </div>
+      </div>
+      <button class="button is-success block" @click="saveFile(wasmFile)" title="Save file to OPFS">Save Wasm
+        file</button>
+
+      <div class="field">
+        <div class="file has-name is-info">
+          <label class="file-label">
+            <input class="file-input" type="file" accept="application/json" @change="onJsonFileChanged($event)" />
+            <span class="file-cta" title="Upload JSON config">
+              <span class="file-label">Upload a file</span>
+            </span>
+            <span class="file-name">{{ jsonFile?.name ?? "No file uploaded" }}</span>
+          </label>
+        </div>
+      </div>
+      <button class="button is-success block" @click="saveFile(jsonFile)" title="Save file to OPFS">Save config
+        file</button>
+
+      <label class="label has-text-grey-dark">Run</label>
+      <div class="buttons">
+        <button class="button is-info block" @click="scheduler.registerLocalBorrowers"
+          title="Register all local workers">Register Local Workers</button>
+        <button class="button is-success block" @click="run" title="Run Wasm file with json config">Run</button>
       </div>
 
     </div>
@@ -188,16 +286,19 @@ async function runloadtesting(iterations: number = 1000) {
       <label class="label has-text-grey-dark">Broker Transport</label>
       <div class="field has-addons">
         <div class="control">
-          <input :readonly="conn.connected" class="input" :class="connectionStatus" type="text" title="WebTransport Configuration URL" v-model="transportConfig">
+          <input :readonly="conn.connected" class="input" :class="connectionStatus" type="text"
+            title="WebTransport Configuration URL" v-model="transportConfig">
         </div>
         <div class="control" v-if="!conn.connected">
           <button class="button is-success" @click="connect" title="Reconnect Transport">Connect</button>
         </div>
         <div class="control" v-if="conn.connected">
-          <button class="button is-warning" @click="shutdown" title="Drain Workers and close the Transport gracefully">Close</button>
+          <button class="button is-warning" @click="shutdown"
+            title="Drain Workers and close the Transport gracefully">Close</button>
         </div>
         <div class="control" v-if="conn.connected">
-          <button class="button is-danger" @click="killall" title="Kill Workers and close Transport immediately">Kill</button>
+          <button class="button is-danger" @click="killall"
+            title="Kill Workers and close Transport immediately">Kill</button>
         </div>
       </div>
 
@@ -209,7 +310,8 @@ async function runloadtesting(iterations: number = 1000) {
 
       <div v-if="showOOMtest">
         <label class="label has-text-grey-dark">Out of Memory Testing</label>
-        <button class="button is-warning" @click="() => runloadtesting()" title="Run Load testing to trigger OOM error">Eat my Memory, plz</button>
+        <button class="button is-warning" @click="() => runloadtesting()"
+          title="Run Load testing to trigger OOM error">Eat my Memory, plz</button>
       </div>
 
     </div>
