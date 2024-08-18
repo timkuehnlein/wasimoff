@@ -79,7 +79,7 @@ export const useP2PConnection = defineStore<string, ConnectionStore>(
       // connect the new transport
       console.log(...prefix, "to WebRTC peer, through relay:", url);
       try {
-        transport.value = await WebRTCTransport.connect(url);
+        transport.value = await WebRTCTransport.connect(url, conf.role);
       } catch (err) {
         console.error(...prefix, "Failed to connect to WebRTC peer:", err);
         throw err;

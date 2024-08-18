@@ -50,36 +50,17 @@ export class WebRTCTransport implements P2PTransport {
   ) {}
 
   // establish the connection
-  public static async connect(url: string): Promise<WebRTCTransport> {
+  public static async connect(
+    url: string,
+    role: "client" | "provider" | "peer" = "peer"
+  ): Promise<WebRTCTransport> {
     // create peer discovering libp2p node
     const node = await createLibp2p(options(url));
 
-    // wait for a new discovered connection, then open outgoing streams
-    const openStreams = async () => {
-      const connection = await discoverConnection(node);
-      const [messagesStream, rpcStream, queueStream] = await Promise.all([
-        connection.newStream(WASMOFF_MSG_PROTOCOL),
-        connection.newStream(WASMOFF_RPC_PROTOCOL),
-        connection.newStream(WASMOFF_QUEUE_PROTOCOL),
-      ]);
-      return { messagesStream, rpcStream, queueStream };
-    };
-
-    // wait for incomming stream requests
-    const acceptStreams = async () => {
-      const [messagesStream, rpcStream, queueStream] = await Promise.all([
-        acceptIncomingStream(node, WASMOFF_MSG_PROTOCOL),
-        acceptIncomingStream(node, WASMOFF_RPC_PROTOCOL),
-        acceptIncomingStream(node, WASMOFF_QUEUE_PROTOCOL),
-      ]);
-      return { messagesStream, rpcStream, queueStream };
-    };
-
-    // whatever works fastest, open or accept
-    const { messagesStream, rpcStream, queueStream } = await Promise.race([
-      openStreams(),
-      acceptStreams(),
-    ]);
+    const { messagesStream, rpcStream, queueStream } = await getMessageStreams(
+      node,
+      role
+    );
 
     node.removeEventListener("peer:connect");
 
@@ -193,4 +174,46 @@ async function acceptIncomingStream(
       resolve(stream);
     });
   });
+}
+
+function getAcceptStreams(node: Libp2p) {
+  // wait for incomming stream requests
+  return async () => {
+    const [messagesStream, rpcStream, queueStream] = await Promise.all([
+      acceptIncomingStream(node, WASMOFF_MSG_PROTOCOL),
+      acceptIncomingStream(node, WASMOFF_RPC_PROTOCOL),
+      acceptIncomingStream(node, WASMOFF_QUEUE_PROTOCOL),
+    ]);
+    return { messagesStream, rpcStream, queueStream };
+  };
+}
+
+function getOpenStreams(node: Libp2p) {
+  // wait for a new discovered connection, then open outgoing streams
+  return async () => {
+    const connection = await discoverConnection(node);
+    const [messagesStream, rpcStream, queueStream] = await Promise.all([
+      connection.newStream(WASMOFF_MSG_PROTOCOL),
+      connection.newStream(WASMOFF_RPC_PROTOCOL),
+      connection.newStream(WASMOFF_QUEUE_PROTOCOL),
+    ]);
+    return { messagesStream, rpcStream, queueStream };
+  };
+}
+
+function getMessageStreams(
+  node: Libp2p,
+  role: "client" | "provider" | "peer"
+): Promise<{ messagesStream: Stream; rpcStream: Stream; queueStream: Stream }> {
+  if (role === "client") {
+    return getOpenStreams(node)();
+  }
+
+  if (role === "provider") {
+    return getAcceptStreams(node)();
+  }
+
+  // "peer"
+  // whatever works fastest, open or accept
+  return Promise.race([getOpenStreams(node)(), getAcceptStreams(node)()]);
 }
